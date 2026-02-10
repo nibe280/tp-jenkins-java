@@ -1,0 +1,106 @@
+pipeline {
+    agent any
+    
+    parameters {
+        choice(
+            name: 'BRANCH_TYPE',
+            choices: ['dev', 'test', 'prod'],
+            description: 'Type d\'environnement'
+        )
+        string(
+            name: 'NUMBER',
+            defaultValue: '5',
+            description: 'Nombre pour la factorielle'
+        )
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "========================================="
+                echo "  Cloning repository..."
+                echo "  Environnement: ${params.BRANCH_TYPE}"
+                echo "========================================="
+                checkout scm
+            }
+        }
+        
+        stage('Clean Workspace') {
+            steps {
+                echo "Nettoyage du workspace..."
+                sh 'rm -rf build *.class *.jar MANIFEST.MF'
+                sh 'mkdir -p build'
+            }
+        }
+        
+        stage('Compile') {
+            steps {
+                echo "========================================="
+                echo "  Compilation du code source"
+                echo "========================================="
+                sh 'javac -d build Factorial.java'
+            }
+        }
+        
+        stage('Build JAR') {
+            when {
+                expression { params.BRANCH_TYPE in ['test', 'prod'] }
+            }
+            steps {
+                echo "========================================="
+                echo "  Création du JAR (uniquement pour ${params.BRANCH_TYPE})"
+                echo "========================================="
+                sh 'echo "Main-Class: Factorial" > MANIFEST.MF'
+                sh 'jar cvfm factorial.jar MANIFEST.MF -C build .'
+            }
+        }
+        
+        stage('Execute') {
+            steps {
+                echo "========================================="
+                echo "  Exécution avec le paramètre ${params.NUMBER}"
+                echo "  Environnement: ${params.BRANCH_TYPE}"
+                echo "========================================="
+                script {
+                    if (params.BRANCH_TYPE == 'prod') {
+                        sh "java -jar factorial.jar ${params.NUMBER}"
+                    } else {
+                        sh "java -cp build Factorial ${params.NUMBER}"
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy') {
+            when {
+                expression { params.BRANCH_TYPE == 'prod' }
+            }
+            steps {
+                echo "========================================="
+                echo "  🚀 DÉPLOIEMENT EN PRODUCTION"
+                echo "========================================="
+                echo "Simulation du déploiement..."
+                sh 'ls -lh factorial.jar'
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo "========================================="
+            echo "  Nettoyage post-build"
+            echo "========================================="
+        }
+        success {
+            echo "✅ BUILD RÉUSSI pour ${params.BRANCH_TYPE} !"
+            script {
+                if (params.BRANCH_TYPE in ['test', 'prod']) {
+                    archiveArtifacts artifacts: 'factorial.jar', allowEmptyArchive: false
+                }
+            }
+        }
+        failure {
+            echo "❌ BUILD ÉCHOUÉ !"
+        }
+    }
+}
